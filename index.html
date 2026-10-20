@@ -96,7 +96,11 @@ tr.hl td{background:color-mix(in srgb,var(--accent) 22%,transparent)}
 .p.off{opacity:.55}
 @media (max-width:460px){.p{grid-template-columns:1fr}.p .out{grid-template-columns:1fr 1fr}.p .out .pk{grid-column:1/-1}}
 ol.order{margin:0;padding-left:1.3em;display:grid;gap:6px;max-width:68ch}
-.reset{font:600 .85rem var(--body);background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:4px;padding:6px 12px;cursor:pointer;margin-top:10px}
+.reset{font:600 .85rem var(--body);background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:4px;padding:6px 12px;cursor:pointer;min-height:46px}
+.mixtools{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.mixtools select{flex:1 1 240px;width:auto;min-width:0}
+.rm{font:600 .78rem var(--body);background:transparent;border:0;color:var(--muted);text-decoration:underline;padding:4px 0;margin-top:4px;cursor:pointer}
+.rm:hover{color:var(--warn)}
 </style>
 
 </head>
@@ -224,7 +228,10 @@ ol.order{margin:0;padding-left:1.3em;display:grid;gap:6px;max-width:68ch}
     </section>
 
     <div class="prod" id="prodList"></div>
-    <button type="button" class="reset" id="resetRates">Reset rates to defaults</button>
+    <div class="mixtools">
+      <select id="addProd" aria-label="Add a product"></select>
+      <button type="button" class="reset" id="resetRates">Reset to defaults</button>
+    </div>
 
     <section class="card">
       <h2>Mixing order</h2>
@@ -311,8 +318,10 @@ const R={
   sand:  {label:'Sand / gravel / coarse',   note:'Bentonite and polymer to hold the hole open and carry cuttings.', items:[['soda',.75],['gel',35],['qtlv',1],['nosag',.75]]},
   mixed: {label:'Clay and sand mix',        note:'Bentonite base with clay inhibitor and wetting agent.',            items:[['soda',.75],['gel',30],['qt',.5],['ezgold',.5],['pen',1],]},
   clay:  {label:'Clay / shale / sticky',    note:'Polymer system; keeps clay from swelling and balling.',            items:[['soda',.75],['ezmud',1],['pen',2]]},
+  large: {label:'Large diameter / long bore', note:'Bentonite base for suspension and wall cake, light polymer for clay control. Keep polymer low so it doesn\'t thin the gel.', items:[['soda',.75],['gel',40],['qtlv',1],['nosag',.5],['polyb',.5]]},
   rclay: {label:'Reactive / swelling clay', note:'Heavier inhibition plus dispersant for gumbo.',                  items:[['soda',.75],['polyb',.75],['pen',2],['pfd',1]]},
 };
+const ORD={soda:0,gel:1,qtlv:2,qt:2,nosag:2,polyb:2,ezgold:2,ezmud:3,pen:3,pfd:3}; // soda ash, bentonite, dry polymer, liquids
 const PEN_RANGE={mixed:[.5,2]}; // PENETROL range is lower in clay/sand mix
 $('mSoil').innerHTML=Object.entries(R).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
 $('mSoil').value='clay';
@@ -320,15 +329,23 @@ $('tankChips').innerHTML=[100,300,500,1000].map(s=>`<button type="button" data-s
 $('tankChips').addEventListener('click',e=>{const s=e.target.dataset.s;if(s){$('tank').value=s;calcMix();}});
 
 let rates=store.get('hddrates')||{}; // user overrides: rates[soil][prod]
+let lists=store.get('hddlists')||{}; // user product lists: lists[soil]=[keys]
+function listOf(soil){
+  const keys=lists[soil]||R[soil].items.map(i=>i[0]);
+  return keys.filter(k=>P[k]).sort((a,b)=>ORD[a]-ORD[b]);
+}
+function defRate(soil,k){const it=R[soil].items.find(i=>i[0]===k);return it?it[1]:P[k].min;}
 function rateOf(soil,key,def){return rates[soil]&&isFinite(rates[soil][key])?rates[soil][key]:def;}
 
 function buildProducts(){
   const soil=$('mSoil').value,rec=R[soil];
   $('mSoilNote').textContent=rec.note;
-  $('prodList').innerHTML=rec.items.map(([k,def],i)=>{
+  const keys=listOf(soil);
+  $('prodList').innerHTML=keys.map((k,i)=>{
+    const def=defRate(soil,k);
     const p=P[k],rng=k==='pen'&&PEN_RANGE[soil]?PEN_RANGE[soil]:[p.min,p.max];
     return `<div class="p" data-k="${k}">
-      <div><div class="step">Step ${i+1}</div><div class="nm">${p.name}</div><div class="role">${p.role}</div></div>
+      <div><div class="step">Step ${i+1}</div><div class="nm">${p.name}</div><div class="role">${p.role}</div><button type="button" class="rm" data-rm="${k}">Remove</button></div>
       <div class="rate"><label for="r_${k}">${p.unit} / 100 gal</label>
         <input id="r_${k}" data-k="${k}" type="number" inputmode="decimal" min="0" step="${p.unit==='lb'&&p.max>10?1:0.25}" value="${rateOf(soil,k,def)}">
         <div class="r">Range ${rng[0]}–${rng[1]} ${p.unit}</div></div>
@@ -338,11 +355,18 @@ function buildProducts(){
         <div class="pk"><div class="v" data-o="pk">–</div><div class="u" data-o="pku">${p.pkgName}</div></div>
       </div></div>`;
   }).join('');
+  $('prodList').querySelectorAll('[data-rm]').forEach(b=>b.addEventListener('click',()=>{
+    lists[soil]=listOf(soil).filter(k=>k!==b.dataset.rm);store.set('hddlists',lists);buildProducts();calcMix();
+  }));
+  const rest=Object.keys(P).filter(k=>!keys.includes(k)).sort((a,b)=>ORD[a]-ORD[b]);
+  $('addProd').innerHTML='<option value="">+ Add a product…</option>'+rest.map(k=>`<option value="${k}">${P[k].name}</option>`).join('');
+  $('addProd').disabled=!rest.length;
   $('prodList').querySelectorAll('input').forEach(inp=>inp.addEventListener('input',()=>{
     (rates[soil]=rates[soil]||{})[inp.dataset.k]=parseFloat(inp.value);store.set('hddrates',rates);calcMix();
   }));
 }
-$('resetRates').onclick=()=>{delete rates[$('mSoil').value];store.set('hddrates',rates);buildProducts();calcMix();};
+$('resetRates').onclick=()=>{const so=$('mSoil').value;delete rates[so];delete lists[so];store.set('hddrates',rates);store.set('hddlists',lists);buildProducts();calcMix();};
+$('addProd').addEventListener('change',e=>{const k=e.target.value;if(!k)return;const so=$('mSoil').value;lists[so]=[...listOf(so),k];store.set('hddlists',lists);buildProducts();calcMix();});
 
 function calcMix(){
   const d=parseFloat($('dia').value),r=ratio(),bore=parseFloat($('bore').value),tank=parseFloat($('tank').value);

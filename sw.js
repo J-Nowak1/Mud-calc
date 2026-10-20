@@ -1,6 +1,6 @@
 // Saves the app on the phone so it opens with no signal.
 // When you change any file, bump this version so phones pick up the update.
-const CACHE = 'mudcalc-v1';
+const CACHE = 'mudcalc-v2';
 const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
